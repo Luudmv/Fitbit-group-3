@@ -11,24 +11,6 @@ print("Number of unique users:", unique_users)
 total_distance_by_user = database.groupby("Id", as_index=False)["TotalDistance"].sum()
 print(total_distance_by_user)
 
-# plt.figure(figsize=(10, 5))
-# plt.bar(
-#     total_distance_by_user["Id"].astype(str),
-#     total_distance_by_user["TotalDistance"]
-# )
-
-# plt.xlabel("User Id")
-# plt.ylabel("Total Distance")
-# plt.title("Total Distance per User")
-# plt.xticks(rotation=90)
-# plt.tight_layout()
-# plt.show()
-
-import pandas as pd
-import matplotlib.pyplot as plt
-
-# One-time: make sure ActivityDate is a datetime column
-# (Do this once after reading the CSV)
 database["ActivityDate"] = pd.to_datetime(database["ActivityDate"], errors="coerce")
 
 def user_friendly(user_id, start_date=None, end_date=None):
