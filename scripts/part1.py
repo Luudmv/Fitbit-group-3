@@ -10,7 +10,8 @@ import statsmodels.api as sm
 import numpy as np
 import matplotlib.pyplot as plt 
 
-database = pd.read_csv("daily_acivity.csv")
+
+database = pd.read_csv("daily_activity.csv")
 unique_users = database["Id"].nunique()
 print("Number of unique users:", unique_users)
 
