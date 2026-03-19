@@ -17,11 +17,14 @@ print(weight_df[['WeightKg', 'BMI', 'Fat']].isnull().sum())
 
 weight_df['CalculatedHeight'] = (weight_df['WeightKg'] / weight_df['BMI']) ** 0.5
 weight_df['UserHeight'] = weight_df.groupby('Id')['CalculatedHeight'].transform('mean')
+weight_df['UserHeight'] = weight_df['UserHeight'].fillna(weight_df['CalculatedHeight'].mean())
 weight_df['BMI'] = weight_df['BMI'].fillna(weight_df['WeightKg'] / (weight_df['UserHeight'] ** 2))
 weight_df['WeightKg'] = weight_df['WeightKg'].fillna(weight_df['BMI'] * (weight_df['UserHeight'] ** 2))
 
+
 if 'Fat' in weight_df.columns:
     weight_df['Fat'] = weight_df['Fat'].fillna(weight_df.groupby('Id')['Fat'].transform('mean'))
+    weight_df['Fat'] = weight_df['Fat'].fillna(weight_df['Fat'].mean())
 
 print("\nMissing values AFTER resolution:")
 print(weight_df[['WeightKg', 'BMI', 'Fat']].isnull().sum())
@@ -29,9 +32,9 @@ weight_df = weight_df.drop(columns=['CalculatedHeight', 'UserHeight'])
 
 # 2.investigating relations between the various tables
 query_activity = """
-SELECT id, AVG(TotalSteps) AS AvgSteps, AVG(Calories) AS AvgCalories, AVG(SedentartyMinutes) AS AvgSedentary
+SELECT id, AVG(TotalSteps) AS AvgSteps, AVG(Calories) AS AvgCalories, AVG(SedentaryMinutes) AS AvgSedentary
 From daily_activity
-GOURP BY Id
+GROUP BY Id
 """
 
 df_user_activity = pd.read_sql_query(query_activity, conn)
@@ -72,3 +75,56 @@ plt.show()
 sns.pairplot(df_user_stats.drop('Id', axis=1), kind='reg', diag_kind='kde', plot_kws={'line_kws':{'color':'red'}}, corner=True)
 plt.suptitle("Pairplot of User-Level Health Metrics", y=1.02)
 plt.show()
+print(weight_df[['Id', 'WeightKg', 'BMI', 'Fat']])
+
+query_heart_rate = "SELECT * FROM heart_rate"
+cursor = conn.cursor()
+cursor.execute(query_heart_rate)
+rows_heart_rate = cursor.fetchall()
+heart_rate_df = pd.DataFrame(rows_heart_rate, columns=[x[0] for x in cursor.description])
+
+heart_rate_df["Time"] = pd.to_datetime(heart_rate_df["Time"])
+heart_rate_df['Hour'] = heart_rate_df['Time'].dt.floor('h')
+
+heart_rate_hourly_df = (
+    heart_rate_df.groupby(['Id', 'Hour'], as_index=False)['Value']
+    .mean()
+    .rename(columns={'Value': 'AvgValue'})
+)
+
+query_hourly_steps = "SELECT * FROM hourly_steps"
+cursor = conn.cursor()
+cursor.execute(query_hourly_steps)
+rows_hourly_steps = cursor.fetchall()
+hourly_steps_df = pd.DataFrame(rows_hourly_steps, columns=[x[0] for x in cursor.description])
+hourly_steps_df = hourly_steps_df.rename(columns={'ActivityHour': 'Hour'})
+hourly_steps_df["Hour"] = pd.to_datetime(hourly_steps_df["Hour"])
+
+merged_df = pd.merge(
+    hourly_steps_df,
+    heart_rate_hourly_df,
+    on=['Id', 'Hour'],
+    how='inner'   # important: only matched rows
+)
+
+merged_df['StepBin'] = (merged_df['StepTotal'] // 500) * 500
+
+plot_df = (
+    merged_df
+    .groupby('StepBin', as_index=False)['AvgValue']
+    .mean()
+)
+
+for _, row in plot_df.iterrows():
+    print(f"Steps: {int(row['StepBin'])} → Avg Heart Rate: {row['AvgValue']:.2f}")
+
+plt.figure()
+plt.plot(plot_df['StepBin'], plot_df['AvgValue'])
+
+plt.xlabel("Steps per Hour")
+plt.ylabel("Average Heart Rate")
+plt.title("Steps vs Heart Rate")
+
+plt.show()
+
+conn.close()
