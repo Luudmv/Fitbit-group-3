@@ -144,3 +144,4 @@ Developed by Group 3.
 
 * **Alan Chen**
 * **Ruud**
+* **Figo**
