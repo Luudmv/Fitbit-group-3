@@ -13,8 +13,8 @@ import ssl
 conn = sqlite3.connect('fitbit_database.db')
 
 query = f"""
-SELECT Id, logId, count(*) as sleep_duration_min 
-FROM minute_sleep 
+SELECT Id, logId, DATE(date) AS SleepDate, COUNT(*) AS sleep_duration_min
+FROM minute_sleep
 GROUP BY logId
 """
 
@@ -40,7 +40,8 @@ daily_activity_df['TotalActiveMinutes'] = (
 )
 print(daily_activity_df.head())
 
-df_analysis_0 = pd.merge(sleep_duration_df, daily_activity_df, on = 'Id', how = 'left')
+df_analysis_0 = pd.merge(sleep_duration_df, daily_activity_df,
+                         left_on=['Id', 'SleepDate'],right_on=['Id', 'ActivityDate'])
 
 X = df_analysis_0['TotalActiveMinutes']
 y = df_analysis_0['sleep_duration_min']
@@ -52,19 +53,31 @@ print(model.summary())
 # relationship between sedentary activity and the sleep duration (a linear regression)
 
 query_sedentary = """
-SELECT Id, SedentaryMinutes
+SELECT Id, ActivityDate, SedentaryMinutes
 FROM daily_activity
 """
 
 cursor.execute(query_sedentary)
 rows_sedentary = cursor.fetchall()
 sedentary_df = pd.DataFrame(rows_sedentary, columns = [x[0] for x in cursor.description])
+sedentary_df['ActivityDate'] = pd.to_datetime(sedentary_df['ActivityDate'])
+query_sleep_with_date = """
+SELECT Id, logId, DATE(date) AS SleepDate, COUNT(*) AS sleep_duration_min
+FROM minute_sleep
+GROUP BY logId
+"""
+sleep_with_date = pd.read_sql_query(query_sleep_with_date, conn)
+sleep_with_date['SleepDate'] = pd.to_datetime(sleep_with_date['SleepDate'])
 
-df_analysis_1 = pd.merge(sleep_duration_df, sedentary_df, on = 'Id', how = 'inner')
+df_analysis_1 = pd.merge(sleep_with_date,sedentary_df,
+    left_on=['Id', 'SleepDate'],
+    right_on=['Id', 'ActivityDate'],
+    how='inner'
+)
 
 X = df_analysis_1['SedentaryMinutes']
 y = df_analysis_1['sleep_duration_min']
-x = sm.add_constant(X)
+X = sm.add_constant(X)
 model = sm.OLS(y, X).fit()
 print(model.summary())
 
@@ -139,7 +152,7 @@ def plot_individual_activity(user_id):
     
     return fig
 
-my_fig = plot_individual_activity(2022484408.0) 
+my_fig = plot_individual_activity(2022484408)
 plt.show()
 
 #relation between weather factors (precipation, temperature and the activity of the individuals)
