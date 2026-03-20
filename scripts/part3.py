@@ -25,8 +25,8 @@ sleep_duration_df = pd.DataFrame(rows, columns = [x[0] for x in cursor.descripti
 print(sleep_duration_df.head())
 
 # active minutes on a day and the minutes of sleep regression 
-query_activity = f"""
-SELECT Id, VeryActiveMinutes, FairlyActiveMinutes, LightlyActiveMinutes
+query_activity = """
+SELECT Id, ActivityDate, VeryActiveMinutes, FairlyActiveMinutes, LightlyActiveMinutes
 FROM daily_activity
 """
 cursor.execute(query_activity)
