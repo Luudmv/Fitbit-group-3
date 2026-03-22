@@ -3,128 +3,153 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-conn = sqlite3.connect('fitbit_database.db')
-
-# 1.fill in missing value of the table weight_log
-query_weight = "SELECT * FROM weight_log"
-cursor = conn.cursor()
-cursor.execute(query_weight)
-rows_weight = cursor.fetchall()
-weight_df = pd.DataFrame(rows_weight, columns=[x[0] for x in cursor.description])
-
-print("Missing values BEFORE resolution:")
-print(weight_df[['WeightKg', 'BMI', 'Fat']].isnull().sum())
-
-weight_df['CalculatedHeight'] = (weight_df['WeightKg'] / weight_df['BMI']) ** 0.5
-weight_df['UserHeight'] = weight_df.groupby('Id')['CalculatedHeight'].transform('mean')
-weight_df['UserHeight'] = weight_df['UserHeight'].fillna(weight_df['CalculatedHeight'].mean())
-weight_df['BMI'] = weight_df['BMI'].fillna(weight_df['WeightKg'] / (weight_df['UserHeight'] ** 2))
-weight_df['WeightKg'] = weight_df['WeightKg'].fillna(weight_df['BMI'] * (weight_df['UserHeight'] ** 2))
 
 
-if 'Fat' in weight_df.columns:
-    weight_df['Fat'] = weight_df['Fat'].fillna(weight_df.groupby('Id')['Fat'].transform('mean'))
-    weight_df['Fat'] = weight_df['Fat'].fillna(weight_df['Fat'].mean())
+# CONNECTION HELPERS
 
-print("\nMissing values AFTER resolution:")
-print(weight_df[['WeightKg', 'BMI', 'Fat']].isnull().sum())
-weight_df = weight_df.drop(columns=['CalculatedHeight', 'UserHeight'])
+def get_connection(db_path: str = 'fitbit_database.db') -> sqlite3.Connection:
+    return sqlite3.connect(db_path)
 
-# 2.investigating relations between the various tables
-query_activity = """
-SELECT id, AVG(TotalSteps) AS AvgSteps, AVG(Calories) AS AvgCalories, AVG(SedentaryMinutes) AS AvgSedentary
-From daily_activity
-GROUP BY Id
-"""
 
-df_user_activity = pd.read_sql_query(query_activity, conn)
+def query_to_df(conn: sqlite3.Connection, query: str) -> pd.DataFrame:
+    cursor = conn.cursor()
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    return pd.DataFrame(rows, columns=[x[0] for x in cursor.description])
 
-## Aggregate Sleep (Average minutes per sleep session per user). Counting all minute rows and dividing by the number of unique sleep sessions
-query_sleep = """
-SELECT 
-    Id, 
-    CAST(COUNT(*) AS FLOAT) / COUNT(DISTINCT logId) AS AvgSleepMinutes
-FROM minute_sleep
-GROUP BY Id;
-"""
-df_user_sleep = pd.read_sql_query(query_sleep, conn)
 
-## Aggregate Weight & BMI (Average per user)
-df_user_weight = weight_df
-df_user_weight = weight_df.groupby('Id')['WeightKg'].mean().reset_index().rename(columns={'WeightKg': 'AvgWeight'})
-df_user_weight = weight_df.groupby('Id')['BMI'].mean().reset_index().rename(columns={'BMI': 'AvgBMI'})
 
-df_user_stats = pd.merge(df_user_activity, df_user_sleep, on='Id', how='inner')
-df_user_stats = pd.merge(df_user_stats, df_user_weight, on='Id', how='inner')
+# DATA PREPARATION FUNCTIONS
 
-print("\n--- Numerical Statistics per Individual (First 5 Users) ---")
-print(df_user_stats.head())
+def prepare_user_stats(conn):
+    query_activity = """
+    SELECT Id, AVG(TotalSteps) AS AvgSteps, AVG(Calories) AS AvgCalories,
+           AVG(SedentaryMinutes) AS AvgSedentary
+    FROM daily_activity
+    GROUP BY Id
+    """
 
-print("\n--- Correlation Matrix ---")
-correlation_matrix = df_user_stats.drop('Id', axis=1).corr()
-print(correlation_matrix)
+    query_sleep = """
+    SELECT Id,
+           CAST(COUNT(*) AS FLOAT) / COUNT(DISTINCT logId) AS AvgSleepMinutes
+    FROM minute_sleep
+    GROUP BY Id
+    """
 
-# This shows the strength of the linear relationships between all variables
-plt.figure(figsize=(8, 6))
-sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt=".2f", vmin=-1, vmax=1)
-plt.title("Correlation Heatmap: Average User Statistics")
-plt.tight_layout()
-plt.show()
+    df_activity = query_to_df(conn, query_activity)
+    df_sleep = query_to_df(conn, query_sleep)
 
-# This graphically shows the scatter plots for every combination of variables
-sns.pairplot(df_user_stats.drop('Id', axis=1), kind='reg', diag_kind='kde', plot_kws={'line_kws':{'color':'red'}}, corner=True)
-plt.suptitle("Pairplot of User-Level Health Metrics", y=1.02)
-plt.show()
-print(weight_df[['Id', 'WeightKg', 'BMI', 'Fat']])
+    df = pd.merge(df_activity, df_sleep, on='Id', how='inner')
+    return df
 
-query_heart_rate = "SELECT * FROM heart_rate"
-cursor = conn.cursor()
-cursor.execute(query_heart_rate)
-rows_heart_rate = cursor.fetchall()
-heart_rate_df = pd.DataFrame(rows_heart_rate, columns=[x[0] for x in cursor.description])
 
-heart_rate_df["Time"] = pd.to_datetime(heart_rate_df["Time"])
-heart_rate_df['Hour'] = heart_rate_df['Time'].dt.floor('h')
+def prepare_hourly_merged(conn):
+    heart_rate = query_to_df(conn, "SELECT * FROM heart_rate")
+    steps = query_to_df(conn, "SELECT * FROM hourly_steps")
 
-heart_rate_hourly_df = (
-    heart_rate_df.groupby(['Id', 'Hour'], as_index=False)['Value']
-    .mean()
-    .rename(columns={'Value': 'AvgValue'})
-)
+    heart_rate["Time"] = pd.to_datetime(heart_rate["Time"])
+    heart_rate["Hour"] = heart_rate["Time"].dt.floor('h')
 
-query_hourly_steps = "SELECT * FROM hourly_steps"
-cursor = conn.cursor()
-cursor.execute(query_hourly_steps)
-rows_hourly_steps = cursor.fetchall()
-hourly_steps_df = pd.DataFrame(rows_hourly_steps, columns=[x[0] for x in cursor.description])
-hourly_steps_df = hourly_steps_df.rename(columns={'ActivityHour': 'Hour'})
-hourly_steps_df["Hour"] = pd.to_datetime(hourly_steps_df["Hour"])
+    heart_rate = (
+        heart_rate.groupby(['Id', 'Hour'], as_index=False)['Value']
+        .mean()
+        .rename(columns={'Value': 'AvgHeartRate'})
+    )
 
-merged_df = pd.merge(
-    hourly_steps_df,
-    heart_rate_hourly_df,
-    on=['Id', 'Hour'],
-    how='inner'   # important: only matched rows
-)
+    steps = steps.rename(columns={'ActivityHour': 'Hour'})
+    steps["Hour"] = pd.to_datetime(steps["Hour"])
 
-merged_df['StepBin'] = (merged_df['StepTotal'] // 500) * 500
+    merged = pd.merge(steps, heart_rate, on=['Id', 'Hour'], how='inner')
+    return merged
 
-plot_df = (
-    merged_df
-    .groupby('StepBin', as_index=False)['AvgValue']
-    .mean()
-)
 
-for _, row in plot_df.iterrows():
-    print(f"Steps: {int(row['StepBin'])} → Avg Heart Rate: {row['AvgValue']:.2f}")
 
-plt.figure()
-plt.plot(plot_df['StepBin'], plot_df['AvgValue'])
+# PLOTTING FUNCTIONS
 
-plt.xlabel("Steps per Hour")
-plt.ylabel("Average Heart Rate")
-plt.title("Steps vs Heart Rate")
+def plot_correlation_heatmap(df):
+    corr = df.drop('Id', axis=1).corr()
 
-plt.show()
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(corr, annot=True, cmap='coolwarm', fmt=".2f", vmin=-1, vmax=1)
+    plt.title("Correlation Heatmap")
+    plt.tight_layout()
+    plt.show()
 
-conn.close()
+
+def plot_pairplot(df):
+    sns.pairplot(
+        df.drop('Id', axis=1),
+        kind='reg',
+        diag_kind='kde',
+        plot_kws={'line_kws': {'color': 'red'}},
+        corner=True
+    )
+    plt.suptitle("Pairplot of User Metrics", y=1.02)
+    plt.show()
+
+
+def plot_steps_vs_heart_rate(merged_df):
+    merged_df['StepBin'] = (merged_df['StepTotal'] // 500) * 500
+
+    plot_df = (
+        merged_df.groupby('StepBin', as_index=False)['AvgHeartRate']
+        .mean()
+    )
+
+    plt.figure()
+    plt.plot(plot_df['StepBin'], plot_df['AvgHeartRate'])
+    plt.xlabel("Steps per Hour")
+    plt.ylabel("Average Heart Rate")
+    plt.title("Steps vs Heart Rate")
+    plt.show()
+
+
+def plot_steps_vs_heart_rate_regression(merged_df):
+    sns.regplot(
+        data=merged_df,
+        x='StepTotal',
+        y='AvgHeartRate',
+        scatter_kws={'alpha': 0.3}
+    )
+    plt.title("Steps vs Heart Rate (Regression)")
+    plt.show()
+
+
+def plot_hourly_steps_distribution(conn):
+    steps = query_to_df(conn, "SELECT * FROM hourly_steps")
+    steps["ActivityHour"] = pd.to_datetime(steps["ActivityHour"])
+    steps['HourOfDay'] = steps["ActivityHour"].dt.hour
+
+    sns.boxplot(data=steps, x='HourOfDay', y='StepTotal')
+    plt.title("Steps Distribution by Hour")
+    plt.show()
+
+
+def plot_heart_rate_by_hour(conn):
+    heart_rate = query_to_df(conn, "SELECT * FROM heart_rate")
+    heart_rate["Time"] = pd.to_datetime(heart_rate["Time"])
+    heart_rate['HourOfDay'] = heart_rate["Time"].dt.hour
+
+    sns.lineplot(data=heart_rate, x='HourOfDay', y='Value')
+    plt.title("Heart Rate by Hour")
+    plt.show()
+
+
+# MAIN EXECUTION
+
+if __name__ == "__main__":
+    conn = get_connection()
+
+    # Prepare datasets
+    df_user_stats = prepare_user_stats(conn)
+    merged_df = prepare_hourly_merged(conn)
+
+    # Generate plots
+    plot_correlation_heatmap(df_user_stats)
+    plot_pairplot(df_user_stats)
+    plot_steps_vs_heart_rate(merged_df)
+    plot_steps_vs_heart_rate_regression(merged_df)
+    plot_hourly_steps_distribution(conn)
+    plot_heart_rate_by_hour(conn)
+
+    conn.close()
