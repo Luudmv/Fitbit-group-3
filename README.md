@@ -51,8 +51,7 @@ pip install pandas matplotlib seaborn sqlite3 statsmodels requests streamlit
 
 3. **Running the Dashboard**:
 ```bash
-streamlit run part5.py
-
+streamlit run Overview.py
 ```
 
 ---
