@@ -15,9 +15,9 @@ st.set_page_config(
 )
 
 st.sidebar.markdown("📊 **Overview**")
-st.sidebar.page_link("pages/1_Individual.py", label="👤 Individual")
+st.sidebar.page_link("pages/1_individual.py", label="👤 Individual")
 st.sidebar.page_link("pages/2_sleep.py", label="😴 Sleep Analysis")
-st.sidebar.page_link("pages/3_timeofday.py", label="🕐 Time of Day")
+st.sidebar.page_link("pages/3_time_of_day_blocks.py", label="🕐 Time of Day")
 
 st.title("📊 General statistics")
 st.logo(image="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a3/Fitbit_logo16.svg/3840px-Fitbit_logo16.svg.png", size="large")
