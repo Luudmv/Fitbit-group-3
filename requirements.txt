@@ -1,3 +1,8 @@
+json
+ssl
+urllib.request
+numpy
+streamlit
 matplotlib
 pandas
-numpy
+data
