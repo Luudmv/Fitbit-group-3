@@ -1,8 +1,4 @@
-json
-ssl
-urllib.request
 numpy
 streamlit
 matplotlib
 pandas
-data
